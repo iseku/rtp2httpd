@@ -35,3 +35,6 @@ tools/benchmark_results_*.txt
 # iKuai package outputs
 ikuai-support/.staging/
 ikuai-support/dist/
+
+# Personal OpenWrt binary artifacts
+rtp2httpd-openwrt-*
