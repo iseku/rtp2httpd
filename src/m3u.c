@@ -678,10 +678,12 @@ static int build_appended_catchup_url(const char *base_url, const char *catchup_
   return 0;
 }
 
-/* Extract actual URL from http://host:port/protocol/actual_url format
- * Example: http://router.ccca.cc:5140/rtp/239.253.64.120:5140 ->
- * rtp://239.253.64.120:5140
- */
+/* Extract actual URL from http://host:port/http/actual_url format
+ * Example: http://router.ccca.cc:5140/http/server/path ->
+ * http://server/path
+ *
+ * Note: udpxy-style URLs (http://host:port/rtp|udp|rtsp/...) are NOT
+ * unwrapped — they are treated as plain HTTP proxy sources. */
 static int extract_wrapped_url(const char *url, char *extracted, size_t extracted_size) {
   const char *scheme_end;
   const char *host_start;
@@ -727,7 +729,7 @@ static int extract_wrapped_url(const char *url, char *extracted, size_t extracte
     }
   }
 
-  /* Extract protocol (rtp, udp, rtsp) */
+  /* Extract protocol (only http is unwrapped; see note below) */
   protocol_end = strchr(path_start, '/');
   if (!protocol_end) {
     return -1; /* No protocol separator */
@@ -741,9 +743,16 @@ static int extract_wrapped_url(const char *url, char *extracted, size_t extracte
   memcpy(protocol, path_start, protocol_len);
   protocol[protocol_len] = '\0';
 
-  /* Check if protocol is supported */
-  if (strcasecmp(protocol, "rtp") != 0 && strcasecmp(protocol, "udp") != 0 && strcasecmp(protocol, "rtsp") != 0 &&
-      strcasecmp(protocol, "http") != 0) {
+  /* Only unwrap http://.../http/... wrapped URLs.
+   *
+   * udpxy-style URLs such as http://host:port/rtp/multicast_addr:port,
+   * http://host:port/udp/multicast_addr:port and
+   * http://host:port/rtsp/server:port/path look identical to rtp2httpd's own
+   * proxied paths, but they point to an upstream unicast server (e.g. udpxy).
+   * Unwrapping them into rtp:// / udp:// / rtsp:// would wrongly create a
+   * local multicast/RTSP service instead of an HTTP reverse proxy. They must
+   * be treated as plain HTTP sources and proxied as-is. */
+  if (strcasecmp(protocol, "http") != 0) {
     return -1; /* Unsupported protocol */
   }
 
@@ -818,7 +827,9 @@ static int is_url_recognizable(const char *url) {
   strncpy(test_url, url, sizeof(test_url) - 1);
   test_url[sizeof(test_url) - 1] = '\0';
 
-  /* Try to extract wrapped URL (supports rtp, udp, rtsp, http) */
+  /* Try to extract wrapped HTTP URL (supports http only; udpxy-style
+   * http://host:port/rtp|udp|rtsp/... URLs are left intact and recognized as
+   * plain HTTP sources below) */
   if (extract_wrapped_url(test_url, extracted, sizeof(extracted)) == 0) {
     /* Wrapped URL extracted - always recognizable since extract_wrapped_url
      * only succeeds for supported protocols */
@@ -989,8 +1000,10 @@ static char *create_service_from_url(const char *service_name, const char *url, 
   strncpy(normalized_url, url, sizeof(normalized_url) - 1);
   normalized_url[sizeof(normalized_url) - 1] = '\0';
 
-  /* Try to extract wrapped URL (e.g., http://router:5140/rtp/239.x.x.x ->
-   * rtp://239.x.x.x) */
+  /* Try to extract wrapped HTTP URL (e.g., http://router:5140/http/server/path
+   * -> http://server/path). udpxy-style URLs (http://host:port/rtp/...) are
+   * intentionally NOT unwrapped: they are upstream HTTP unicast sources and
+   * must stay as HTTP proxy URLs. */
   if (extract_wrapped_url(normalized_url, extracted_url, sizeof(extracted_url)) == 0) {
     /* Use the extracted URL */
     strncpy(normalized_url, extracted_url, sizeof(normalized_url) - 1);
