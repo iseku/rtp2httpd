@@ -68,6 +68,7 @@ jobs:
         arch:
           - aarch64_cortex-a53
           - mipsel_24kc
+          - x86_64
 
         sdk:
           - "24.10.4" # For IPK
@@ -83,7 +84,8 @@ jobs:
         env:
           ARCH: ${{ matrix.arch }}-${{ matrix.sdk }}
           NO_SHFMT_CHECK: true
-          PACKAGES: rtp2httpd
+          # Only x86_64 also builds the architecture-independent luci web UI
+          PACKAGES: ${{ matrix.arch == 'x86_64' && 'luci-app-rtp2httpd' || 'rtp2httpd' }}
           V: sc
 
       - name: Upload to release assets
