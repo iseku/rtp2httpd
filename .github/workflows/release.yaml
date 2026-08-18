@@ -6,34 +6,6 @@ on:
       - published
 
 jobs:
-  versioned:
-    name: Generate versioned Makefiles
-    if: ${{ !github.event.release.prerelease }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event.release.tag_name }}
-
-      - name: Set version environment variable
-        run: |
-          RELEASE_TAG="${{ github.event.release.tag_name }}"
-          echo "RELEASE_VERSION=${RELEASE_TAG#v}" >> $GITHUB_ENV
-
-      - name: Generate versioned Makefiles
-        run: ./scripts/generate-versioned-makefiles.sh
-
-      - name: Commit and push versioned Makefiles
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add openwrt-support/rtp2httpd/Makefile.versioned openwrt-support/luci-app-rtp2httpd/Makefile.versioned
-          git commit -m "chore: update versioned Makefiles for ${{ github.event.release.tag_name }}"
-          git push origin HEAD:main
-
   frontend:
     name: Build frontend
     runs-on: ubuntu-latest
@@ -84,58 +56,6 @@ jobs:
           fi
           echo "Frontend pages are up-to-date."
 
-  docker:
-    name: Docker
-    needs: frontend
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event.release.tag_name }}
-
-      - name: Set version environment variable
-        run: |
-          RELEASE_TAG="${{ github.event.release.tag_name }}"
-          echo "RELEASE_VERSION=${RELEASE_TAG#v}" >> $GITHUB_ENV
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract metadata for Docker
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository }}
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=raw,value=latest,enable={{is_default_branch}}
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64,linux/arm/v7
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          build-args: |
-            RELEASE_VERSION=${{ env.RELEASE_VERSION }}
-
   openwrt-packages:
     name: OpenWRT ${{ matrix.sdk }}-${{ matrix.arch }}
     needs: frontend
@@ -146,25 +66,8 @@ jobs:
       fail-fast: false
       matrix:
         arch:
-          - x86_64
           - aarch64_cortex-a53
-          - aarch64_cortex-a72
-          - aarch64_cortex-a76
-          - aarch64_generic
-          - arm_cortex-a5_vfpv4
-          - arm_cortex-a7
-          - arm_cortex-a7_neon-vfpv4
-          - arm_cortex-a7_vfpv4
-          - arm_cortex-a9
-          - arm_cortex-a9_neon
-          - arm_cortex-a9_vfpv3-d16
-          - arm_cortex-a15_neon-vfpv4
-          - mips_24kc
-          - mips_mips32
           - mipsel_24kc
-          - mipsel_24kc_24kf
-          - mipsel_74kc
-          - mipsel_mips32
 
         sdk:
           - "24.10.4" # For IPK
@@ -180,7 +83,7 @@ jobs:
         env:
           ARCH: ${{ matrix.arch }}-${{ matrix.sdk }}
           NO_SHFMT_CHECK: true
-          PACKAGES: ${{ matrix.arch == 'x86_64' && 'luci-app-rtp2httpd' || 'rtp2httpd' }}
+          PACKAGES: rtp2httpd
           V: sc
 
       - name: Upload to release assets
@@ -211,7 +114,7 @@ jobs:
               fi
 
               # Add architecture suffix for non-luci packages
-              # e.g., rtp2httpd-3.0.0_beta3-r1.apk -> rtp2httpd-3.0.0_beta3-r1_x86_64.apk
+              # e.g., rtp2httpd-3.0.0_beta3-r1.apk -> rtp2httpd-3.0.0_beta3-r1_aarch64_cortex-a53.apk
               new_filename="${filename%.apk}_${{ matrix.arch }}.apk"
               echo "Renaming: $filename -> $new_filename"
               cp "$apk_file" "/tmp/$new_filename"
@@ -233,15 +136,8 @@ jobs:
       fail-fast: false
       matrix:
         arch:
-          - x86_64-unknown-linux-musl
           - aarch64-unknown-linux-musl
-          - armv7-unknown-linux-musleabihf
-          - armv7-unknown-linux-musleabi
-          - arm-unknown-linux-musleabihf
-          - arm-unknown-linux-musleabi
           - mipsel-unknown-linux-musl
-          - mips-unknown-linux-musl
-          - mips64-unknown-linux-musl
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -299,168 +195,6 @@ jobs:
           ls -lh "$OUTPUT_NAME"
 
           echo "binary_name=$OUTPUT_NAME" >> $GITHUB_OUTPUT
-
-      - name: Upload to release assets
-        run: |
-          gh release upload \
-            --repo ${{ github.repository }} \
-            ${{ github.event.release.tag_name }} \
-            ${{ steps.prepare.outputs.binary_name }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  macos-static-bin:
-    name: macOS binary ${{ matrix.arch }}
-    needs: frontend
-    runs-on: ${{ matrix.runner }}
-    permissions:
-      contents: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: x86_64
-            runner: macos-26-intel
-          - arch: arm64
-            runner: macos-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event.release.tag_name }}
-
-      - name: Set version environment variable
-        run: |
-          RELEASE_TAG="${{ github.event.release.tag_name }}"
-          echo "RELEASE_VERSION=${RELEASE_TAG#v}" >> $GITHUB_ENV
-
-      - name: Build binary
-        run: |
-          BUILD_DIR="build-macos-${{ matrix.arch }}"
-          mkdir -p "$BUILD_DIR"
-          cd "$BUILD_DIR"
-
-          RELEASE_VERSION="${RELEASE_VERSION}" cmake .. \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DENABLE_AGGRESSIVE_OPT=ON \
-            -DCMAKE_INSTALL_PREFIX=/usr/local
-
-          cmake --build . -j$(getconf _NPROCESSORS_ONLN)
-
-          DESTDIR="$(pwd)/dist" cmake --install . --strip
-
-      - name: Prepare release artifact
-        id: prepare
-        run: |
-          BUILD_DIR="build-macos-${{ matrix.arch }}"
-          BINARY_PATH="${BUILD_DIR}/dist/usr/local/bin/rtp2httpd"
-
-          if [ ! -f "$BINARY_PATH" ]; then
-            echo "Error: Binary not found at $BINARY_PATH"
-            exit 1
-          fi
-
-          OUTPUT_NAME="rtp2httpd-${RELEASE_VERSION}-macos-${{ matrix.arch }}"
-          cp "$BINARY_PATH" "$OUTPUT_NAME"
-
-          file "$OUTPUT_NAME"
-          ls -lh "$OUTPUT_NAME"
-
-          echo "binary_name=$OUTPUT_NAME" >> $GITHUB_OUTPUT
-
-      - name: Upload to release assets
-        run: |
-          gh release upload \
-            --repo ${{ github.repository }} \
-            ${{ github.event.release.tag_name }} \
-            ${{ steps.prepare.outputs.binary_name }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  freebsd-bin:
-    name: FreeBSD binary ${{ matrix.freebsd_version }}-x86
-    needs: frontend
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    strategy:
-      fail-fast: false
-      matrix:
-        freebsd_version:
-          - "14"
-          - "15"
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event.release.tag_name }}
-
-      - name: Set version environment variable
-        run: |
-          RELEASE_TAG="${{ github.event.release.tag_name }}"
-          echo "RELEASE_VERSION=${RELEASE_TAG#v}" >> $GITHUB_ENV
-
-      - name: Download frontend artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: frontend-pages
-          path: src/
-
-      - name: Install dependencies and Build on FreeBSD ${{ matrix.freebsd_version }}.0
-        uses: vmactions/freebsd-vm@v1
-        with:
-          release: "${{ matrix.freebsd_version }}.0"
-          usesh: true
-          prepare: |
-            echo "=== FreeBSD version ==="
-            uname -r
-
-            echo "=== Install dependencies ==="
-            pkg install -y gmake pkgconf cmake
-
-          run: |
-            cd $GITHUB_WORKSPACE
-
-            echo "=== Build binary ==="
-            mkdir -p build && cd build
-
-            RELEASE_VERSION="${{ env.RELEASE_VERSION }}" cmake "${GITHUB_WORKSPACE}" \
-              -DCMAKE_INSTALL_PREFIX=/usr/local \
-              -DCMAKE_INSTALL_SYSCONFDIR=/etc \
-              -DCMAKE_BUILD_TYPE=Release \
-              -DENABLE_AGGRESSIVE_OPT=ON \
-              -DCMAKE_SYSTEM_NAME=FreeBSD
-
-            cmake --build . -j$(getconf _NPROCESSORS_ONLN)
-
-            echo "=== Verify binary ==="
-            file rtp2httpd
-            ldd rtp2httpd || true
-
-            echo "=== Stage binary ==="
-            DESTDIR="${GITHUB_WORKSPACE}/staging" cmake --install . --strip
-
-            echo "=== Verify Stage binary ==="
-            file ${GITHUB_WORKSPACE}/staging/usr/local/bin/rtp2httpd
-            ldd ${GITHUB_WORKSPACE}/staging/usr/local/bin/rtp2httpd || true
-
-      - name: Prepare release artifact
-        id: prepare
-        run: |
-          BINARY_SRC="staging/usr/local/bin/rtp2httpd"
-          BINARY_DST="rtp2httpd-${RELEASE_VERSION}-freebsd${{ matrix.freebsd_version }}-x86_64"
-
-          if [ ! -f "$BINARY_SRC" ]; then
-            echo "Error: Binary not found at $BINARY_SRC"
-            exit 1
-          fi
-
-          cp "$BINARY_SRC" "$BINARY_DST"
-          file "$BINARY_DST"
-          ls -lh "$BINARY_DST"
-
-          echo "binary_name=$BINARY_DST" >> $GITHUB_OUTPUT
 
       - name: Upload to release assets
         run: |
