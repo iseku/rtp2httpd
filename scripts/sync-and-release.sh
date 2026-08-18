@@ -9,12 +9,13 @@
 #        mipsel_24kc（个人使用）
 #
 # 本脚本把个人改动 rebase 到上游最新代码之上，验证改动仍在，然后
-# 自动生成下一个个人版本号（基于上游最新正式版 tag + 递增序号），
-# 并提示打 tag + 在网页上创建 release。
+# 直接使用上游最新正式版 tag 作为个人 release 版本号（不加个人后缀，
+# 保持与上游一致），并提示打 tag + 在网页上创建 release。
 #
 # 版本号规则：
-#   v<上游最新正式版>-iseku.<序号>
-#   例：上游最新 v3.16.0，本地已有 v3.16.0-iseku.1 -> 生成 v3.16.0-iseku.2
+#   直接使用上游最新正式版 tag，例如 v3.16.0。
+#   注意：本地仓库 clone 时已带上游 tag，若要在 fork 上使用同名 tag，
+#   需先删除本地旧 tag 并重新打（见脚本末尾提示）。
 #
 # 执行环境：在克隆了本 fork 的任意 Linux/macOS 机器上运行。
 #   cd <fork 目录> && ./scripts/sync-and-release.sh
@@ -133,10 +134,10 @@ fi
 info "  ✓ release.yaml 仍包含目标 arch"
 
 # ---------------------------------------------------------------------------
-# 5. 自动生成下一个个人版本号
+# 5. 确定个人 release 版本号（直接用上游最新正式版 tag）
 # ---------------------------------------------------------------------------
 echo
-info "自动生成下一个个人版本号..."
+info "确定个人 release 版本号..."
 
 # 5.1 上游最新正式版 tag（排除 -beta/-rc/-alpha 等预发布）
 UPSTREAM_LATEST_TAG="$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | grep -vE -- '-.*' | head -1 || true)"
@@ -148,18 +149,8 @@ if [ -z "$UPSTREAM_LATEST_TAG" ]; then
   error "无法确定上游最新正式版本号"
   exit 1
 fi
-info "  上游最新正式版: $UPSTREAM_LATEST_TAG"
-
-# 5.2 计算该版本下已存在的 -iseku 序号，取下一个
-ISeku_MAX="$(git tag -l "${UPSTREAM_LATEST_TAG}-iseku.*" --sort=-v:refname | sed "s|^${UPSTREAM_LATEST_TAG}-iseku\.||" | grep -E '^[0-9]+$' | head -1 || true)"
-if [ -z "$ISeku_MAX" ]; then
-  ISEKU_NUM=1
-else
-  ISEKU_NUM=$((ISeku_MAX + 1))
-fi
-
-NEW_TAG="${UPSTREAM_LATEST_TAG}-iseku.${ISEKU_NUM}"
-info "  下一个个人版本号: $NEW_TAG"
+NEW_TAG="$UPSTREAM_LATEST_TAG"
+info "  使用上游版本号: $NEW_TAG"
 
 # ---------------------------------------------------------------------------
 # 6. 汇总 & 提示推送 + 打 tag
@@ -170,8 +161,11 @@ echo
 echo "====================== 下一步（手动） ======================"
 echo "  1. 推送到 fork:"
 echo "       git push --force-with-lease origin main"
-echo "  2. 打新 tag 并推送:"
-echo "       git tag $NEW_TAG && git push origin $NEW_TAG"
+echo "  2. 重新打上游版本号 tag 并推送到 fork:"
+echo "       # 本地 clone 时带来的 $NEW_TAG 指向上游 commit，需重建指向 fork main:"
+echo "       git tag -d $NEW_TAG"
+echo "       git tag $NEW_TAG"
+echo "       git push origin $NEW_TAG --force"
 echo "  3. 在网页创建 release 触发构建:"
 echo "       https://github.com/iseku/rtp2httpd/releases/new"
 echo "     - Choose a tag: 选 $NEW_TAG"
