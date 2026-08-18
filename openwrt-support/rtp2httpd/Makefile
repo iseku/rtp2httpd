@@ -16,7 +16,15 @@ RELEASE_VERSION:=$(if $(DUMP),unknown,$(shell \
 # For firmware maintainers: please use Makefile.versioned instead, which has a pinned
 # version and PKG_HASH ready for direct inclusion in your feeds repository.
 # See https://rtp2httpd.com/guide/installation
-PKG_VERSION:=$(shell echo "$(RELEASE_VERSION)" | sed 's/-\([a-z]*\)\.\([0-9]*\)/_\1\2/g')
+#
+# Personal fork version suffix mapping:
+#   The fork uses tags like v3.16.0-iseku.1. OpenWrt 25.x builds APK packages,
+#   and apk-tools rejects version suffixes other than the standard pre-release
+#   tokens (alpha/beta/pre/rc/cvs/svn/git/hg/p). The generic sed below would
+#   turn "-iseku.1" into "_iseku1", which is invalid for APK. Map the personal
+#   suffix to the legal "_pN" (patch level) token first, then apply the
+#   generic fallback for any other suffix.
+PKG_VERSION:=$(shell echo "$(RELEASE_VERSION)" | sed -e 's/-iseku\.\([0-9]*\)/_p\1/' -e 's/-\([a-z]*\)\.\([0-9]*\)/_\1\2/g')
 PKG_RELEASE:=1
 PKG_MAINTAINER:=Stackie Jia <jsq2627@gmail.com>
 PKG_LICENSE:=GPL-2.0-or-later
