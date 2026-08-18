@@ -121,17 +121,18 @@ if ! grep -q 'Only unwrap http://\.\.\./http/\.\.\. wrapped URLs' src/m3u.c; the
 fi
 info "  ✓ src/m3u.c udpxy 修复仍在"
 
-# 4.2 release.yaml 精简：只应包含目标 arch
+# 4.2 release.yaml 精简：只应包含目标 arch（aarch64_cortex-a53 + mipsel_24kc，
+# 另保留 x86_64 用于编译架构无关的 luci web UI 包）
 ARCH_COUNT=$(grep -cE '^\s+- (aarch64_cortex-a53|mipsel_24kc)$' .github/workflows/release.yaml || true)
 if [ "$ARCH_COUNT" -lt 2 ]; then
   error "【检查失败】release.yaml 中找不到 aarch64_cortex-a53 或 mipsel_24kc！"
   error "上游更新可能覆盖了精简配置，需要重新精简 release.yaml"
   exit 1
 fi
-if grep -qE '^\s+- (x86_64|arm_cortex|mips_24kc|mips_mips32|mipsel_74kc|mipsel_mips32)$' .github/workflows/release.yaml; then
+if grep -qE '^\s+- (arm_cortex|mips_24kc|mips_mips32|mipsel_74kc|mipsel_mips32)$' .github/workflows/release.yaml; then
   warn "  ⚠ release.yaml 中似乎有多余的 arch（上游可能合并回来了），请检查"
 fi
-info "  ✓ release.yaml 仍包含目标 arch"
+info "  ✓ release.yaml 仍包含目标 arch（aarch64_cortex-a53 / mipsel_24kc / x86_64）"
 
 # ---------------------------------------------------------------------------
 # 5. 确定个人 release 版本号（直接用上游最新正式版 tag）
