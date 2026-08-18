@@ -79,7 +79,10 @@ fi
 # ---------------------------------------------------------------------------
 echo
 info "拉取上游（upstream）..."
-git fetch upstream --prune --tags
+# 注：fork 重建过与上游同名的 tag（如 v3.16.0 指向 fork main），fetch --tags 会
+# 因同名 tag 冲突报 "would clobber existing tag" 警告。这是预期的，过滤掉该提示，
+# 其它错误（如网络问题）仍会显示。
+git fetch upstream --prune --tags 2>&1 | grep -v 'would clobber existing tag' || true
 
 # ---------------------------------------------------------------------------
 # 2. 计算个人改动（fork 相对上游的差异）
