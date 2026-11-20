@@ -1,4 +1,5 @@
 #include "http_fetch.h"
+#include "configuration.h"
 #include "poller.h"
 #include "utils.h"
 #include "vendor/hashmap/hashmap.h"
@@ -154,22 +155,51 @@ static int build_fetch_command(char *buf, size_t bufsize, const char *url, const
     return -1;
   }
 
+  /* Use the configured upstream User-Agent if set (NULL/empty = tool default) */
+  const char *user_agent =
+      (config.http_proxy_user_agent && config.http_proxy_user_agent[0]) ? config.http_proxy_user_agent : NULL;
+  char escaped_ua[256] = "";
+  if (user_agent && shell_escape_single_quote(user_agent, escaped_ua, sizeof(escaped_ua)) < 0) {
+    return -1;
+  }
+
   if (tool == HTTP_TOOL_CURL) {
-    ret = snprintf(buf, bufsize,
-                   "curl -L -f -s -S -k --max-time %d --connect-timeout 10 -o "
-                   "'%s' '%s' 2>&1; echo \"EXIT_CODE:$?\"",
-                   timeout, output_file, escaped_url);
+    if (user_agent) {
+      ret = snprintf(buf, bufsize,
+                     "curl -L -f -s -S -k --max-time %d --connect-timeout 10 -A '%s' -o "
+                     "'%s' '%s' 2>&1; echo \"EXIT_CODE:$?\"",
+                     timeout, escaped_ua, output_file, escaped_url);
+    } else {
+      ret = snprintf(buf, bufsize,
+                     "curl -L -f -s -S -k --max-time %d --connect-timeout 10 -o "
+                     "'%s' '%s' 2>&1; echo \"EXIT_CODE:$?\"",
+                     timeout, output_file, escaped_url);
+    }
   } else if (tool == HTTP_TOOL_UCLIENT_FETCH) {
-    ret = snprintf(buf, bufsize,
-                   "uclient-fetch --no-check-certificate -q -T %d -O '%s' '%s' "
-                   "2>&1; echo \"EXIT_CODE:$?\"",
-                   timeout, output_file, escaped_url);
+    if (user_agent) {
+      ret = snprintf(buf, bufsize,
+                     "uclient-fetch --no-check-certificate -q -T %d -O '%s' --header='User-Agent: %s' '%s' "
+                     "2>&1; echo \"EXIT_CODE:$?\"",
+                     timeout, output_file, escaped_ua, escaped_url);
+    } else {
+      ret = snprintf(buf, bufsize,
+                     "uclient-fetch --no-check-certificate -q -T %d -O '%s' '%s' "
+                     "2>&1; echo \"EXIT_CODE:$?\"",
+                     timeout, output_file, escaped_url);
+    }
   } else /* HTTP_TOOL_WGET */
   {
-    ret = snprintf(buf, bufsize,
-                   "wget --no-check-certificate -q -T %d -O '%s' '%s' 2>&1; "
-                   "echo \"EXIT_CODE:$?\"",
-                   timeout, output_file, escaped_url);
+    if (user_agent) {
+      ret = snprintf(buf, bufsize,
+                     "wget --no-check-certificate -q -T %d --user-agent='%s' -O '%s' '%s' 2>&1; "
+                     "echo \"EXIT_CODE:$?\"",
+                     timeout, escaped_ua, output_file, escaped_url);
+    } else {
+      ret = snprintf(buf, bufsize,
+                     "wget --no-check-certificate -q -T %d -O '%s' '%s' 2>&1; "
+                     "echo \"EXIT_CODE:$?\"",
+                     timeout, output_file, escaped_url);
+    }
   }
 
   if (ret >= (int)bufsize) {
@@ -244,7 +274,7 @@ static void http_fetch_free(http_fetch_ctx_t *ctx) {
 static http_fetch_ctx_t *http_fetch_start_async_internal(const char *url, http_fetch_callback_t callback,
                                                          http_fetch_fd_callback_t fd_callback, void *user_data,
                                                          int epfd) {
-  char fetch_cmd[MAX_URL_LENGTH + 256];
+  char fetch_cmd[MAX_URL_LENGTH + 512];
   char temp_file_template[] = "/tmp/rtp2httpd_http_fetch_XXXXXX";
   int temp_fd;
 
